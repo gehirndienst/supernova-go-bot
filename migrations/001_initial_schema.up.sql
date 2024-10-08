@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS allowed_users (
+    user_id BIGINT PRIMARY KEY
+);
+
+CREATE TABLE IF NOT EXISTS user_activity (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    command TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
