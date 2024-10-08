@@ -21,7 +21,7 @@ func NewDatabase() (*Database, error) {
 		os.Getenv("DB_NAME"),
 	)
 
-	db, err := sql.Open("postgres", connStr)
+	db, err := sql.Open(os.Getenv("DB_NAME"), connStr)
 	if err != nil {
 		return nil, err
 	}
