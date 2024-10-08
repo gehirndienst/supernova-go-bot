@@ -169,8 +169,8 @@ func (b *Bot) setFetchers() error {
 
 func (b *Bot) setHandlers() {
 	b.handlers["help"] = b.bot.RegisterHandler(telegramBot.HandlerTypeMessageText, "/help", telegramBot.MatchTypeExact, authorizationMiddleware(b, helpHandler, RegularUser))
-	b.handlers["weather"] = b.bot.RegisterHandler(telegramBot.HandlerTypeMessageText, "/weather", telegramBot.MatchTypePrefix, authorizationMiddleware(b, weatherHandlerClosure(b), RegularUser))
-	b.handlers["chat"] = b.bot.RegisterHandler(telegramBot.HandlerTypeMessageText, "/chat", telegramBot.MatchTypePrefix, authorizationMiddleware(b, chatHandlerClosure(b), RegularUser))
+	b.handlers["weather"] = b.bot.RegisterHandler(telegramBot.HandlerTypeMessageText, "/weather", telegramBot.MatchTypePrefix, authorizationMiddleware(b, weatherHandlerClosure(b), PromotedUser))
+	b.handlers["chat"] = b.bot.RegisterHandler(telegramBot.HandlerTypeMessageText, "/chat", telegramBot.MatchTypePrefix, authorizationMiddleware(b, chatHandlerClosure(b), PromotedUser))
 	b.handlers["getid"] = b.bot.RegisterHandler(telegramBot.HandlerTypeMessageText, "/getid", telegramBot.MatchTypeExact, authorizationMiddleware(b, getIDHandler, RegularUser))
 	b.handlers["allow"] = b.bot.RegisterHandler(telegramBot.HandlerTypeMessageText, "/allow", telegramBot.MatchTypePrefix, authorizationMiddleware(b, allowHandlerClosure(b), AdminUser))
 }
