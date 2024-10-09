@@ -37,15 +37,15 @@ supernova-go-bot is a Telegram bot based on [Go Telegram API framework](https://
 The bot has the following commands:
 
 ### Regular commands
-- /help - shows the available commands
-- /getid - shows the user's Telegram ID, useful for the admin to promote users
+- `/help` - shows the available commands
+- `/getid` - shows the user's Telegram ID, useful for the admin to promote users
 
 ### Promoted commands
-- /weather <city> <N> days|hours - fetches the weather forecast for the city for the next N days or hours from AccuWeather
-- /chat <prompt> - sends the prompt to OpenAI and returns the response
+- `/weather <city> <N> days|hours` - fetches the weather forecast for the city for the next N days or hours from AccuWeather
+- `/chat <prompt>` - sends the prompt to OpenAI and returns the response
 
 ### Admin commands
-- /allow <user_id> - promotes the user with the given ID to have access to the promoted commands
+- `/allow <user_id>` - promotes the user with the given ID to have access to the promoted commands
 
 ## License
 The project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
