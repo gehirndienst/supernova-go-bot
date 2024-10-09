@@ -26,7 +26,10 @@ func helpHandler(ctx context.Context, b *telegramBot.Bot, update *telegramBotMod
 	b.SendMessage(ctx, &telegramBot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
 		Text: "Available commands: " +
-			"\n/weather <city> <N> days|hours - get weather forecast for the city for N days or hours",
+			"\n/help - get a list of available commands" +
+			"\n/getid - get your user ID" +
+			"\n/weather <city> <N> days|hours - get weather forecast for the city for N days or hours (PROMOTED USER)" +
+			"\n/chat <prompt> - get a chatgpt response to the prompt (PROMOTED USER)",
 	})
 }
 
