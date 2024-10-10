@@ -11,7 +11,7 @@ import (
 )
 
 // /////////////////////////////////////////////////////////////////////////////
-// Default handlers
+// Raw handlers
 // /////////////////////////////////////////////////////////////////////////////
 
 func defaultHandler(ctx context.Context, b *telegramBot.Bot, update *telegramBotModels.Update) {
@@ -33,20 +33,20 @@ func helpHandler(ctx context.Context, b *telegramBot.Bot, update *telegramBotMod
 	})
 }
 
+func getIDHandler(ctx context.Context, b *telegramBot.Bot, update *telegramBotModels.Update) {
+	b.SendMessage(ctx, &telegramBot.SendMessageParams{
+		ChatID: update.Message.Chat.ID,
+		Text:   fmt.Sprintf("Your ID is: %d", update.Message.From.ID),
+	})
+}
+
 // /////////////////////////////////////////////////////////////////////////////
 // Custom closures
 // /////////////////////////////////////////////////////////////////////////////
 
 func weatherHandlerClosure(b *Bot) telegramBot.HandlerFunc {
-	wf := b.fetchers["weather"]
-
 	return func(ctx context.Context, _ *telegramBot.Bot, update *telegramBotModels.Update) {
-		err := b.db.LogUserActivity(update.Message.From.ID, update.Message.Text)
-		if err != nil {
-			b.logger.Error().Err(err).Msg("Failed to log user activity")
-		}
-
-		// example: "/weather london (any case) 5 days" or "/weather london 12 hours"
+		wf := b.fetchers["weather"]
 		if wf == nil {
 			b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
@@ -55,6 +55,12 @@ func weatherHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 			return
 		}
 
+		err := b.db.LogUserActivity(update.Message.From.ID, update.Message.Text)
+		if err != nil {
+			b.logger.Error().Err(err).Msg("Failed to log user activity")
+		}
+
+		// example: "/weather london (any case) 5 days" or "/weather london 12 hours"
 		messageParts := strings.Fields(update.Message.Text)
 
 		if len(messageParts) < 3 {
@@ -116,22 +122,15 @@ func weatherHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 	}
 }
 
-func getIDHandler(ctx context.Context, b *telegramBot.Bot, update *telegramBotModels.Update) {
-	b.SendMessage(ctx, &telegramBot.SendMessageParams{
-		ChatID: update.Message.Chat.ID,
-		Text:   fmt.Sprintf("Your ID is: %d", update.Message.From.ID),
-	})
-}
-
 func allowHandlerClosure(b *Bot) telegramBot.HandlerFunc {
-	return func(ctx context.Context, bot *telegramBot.Bot, update *telegramBotModels.Update) {
+	return func(ctx context.Context, _ *telegramBot.Bot, update *telegramBotModels.Update) {
 		err := b.db.LogUserActivity(update.Message.From.ID, update.Message.Text)
 		if err != nil {
 			b.logger.Error().Err(err).Msg("Failed to log user activity")
 		}
 
 		if b.getUserRole(update.Message.From.ID) != AdminUser {
-			bot.SendMessage(ctx, &telegramBot.SendMessageParams{
+			b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
 				Text:   "You are not authorized to use this command",
 			})
@@ -140,7 +139,7 @@ func allowHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 
 		args := strings.Fields(update.Message.Text)
 		if len(args) != 2 {
-			bot.SendMessage(ctx, &telegramBot.SendMessageParams{
+			b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
 				Text:   "Usage: /allow <user_id>",
 			})
@@ -149,7 +148,7 @@ func allowHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 
 		userID, err := strconv.ParseInt(args[1], 10, 64)
 		if err != nil {
-			bot.SendMessage(ctx, &telegramBot.SendMessageParams{
+			b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
 				Text:   "Invalid user ID. Please provide a valid numeric ID",
 			})
@@ -159,14 +158,14 @@ func allowHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 		err = b.db.AllowUser(userID)
 		if err != nil {
 			b.logger.Error().Err(err).Msg("Failed to allow user")
-			bot.SendMessage(ctx, &telegramBot.SendMessageParams{
+			b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
 				Text:   "Failed to allow user. Please try again later",
 			})
 			return
 		}
 
-		bot.SendMessage(ctx, &telegramBot.SendMessageParams{
+		b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   fmt.Sprintf("User with ID %d has been allowed to use admin commands", userID),
 		})
@@ -174,9 +173,16 @@ func allowHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 }
 
 func chatHandlerClosure(b *Bot) telegramBot.HandlerFunc {
-	cf := b.fetchers["chat"]
+	return func(ctx context.Context, _ *telegramBot.Bot, update *telegramBotModels.Update) {
+		cf := b.fetchers["chat"]
+		if cf == nil {
+			b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   "Chat fetcher is not available",
+			})
+			return
+		}
 
-	return func(ctx context.Context, bot *telegramBot.Bot, update *telegramBotModels.Update) {
 		err := b.db.LogUserActivity(update.Message.From.ID, update.Message.Text)
 		if err != nil {
 			b.logger.Error().Err(err).Msg("Failed to log user activity")
@@ -184,7 +190,7 @@ func chatHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 
 		prompt := strings.TrimPrefix(update.Message.Text, "/chat ")
 		if prompt == "" {
-			bot.SendMessage(ctx, &telegramBot.SendMessageParams{
+			b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
 				Text:   "Please provide a message after /chat command.",
 			})
@@ -193,14 +199,14 @@ func chatHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 
 		response, err := cf.Fetch(map[string]interface{}{"prompt": prompt})
 		if err != nil {
-			bot.SendMessage(ctx, &telegramBot.SendMessageParams{
+			b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
 				Text:   fmt.Sprintf("Error: %v", err),
 			})
 			return
 		}
 
-		bot.SendMessage(ctx, &telegramBot.SendMessageParams{
+		b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   response,
 		})
