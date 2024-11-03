@@ -55,15 +55,16 @@ func weatherHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 			return
 		}
 
-		err := b.db.LogUserActivity(update.Message.From.ID, update.Message.Text)
-		if err != nil {
-			b.logger.Error().Err(err).Msg("Failed to log user activity")
-		}
+		go func() {
+			if err := b.db.LogUserActivity(update.Message.From.ID, update.Message.Text); err != nil {
+				b.logger.Error().Err(err).Msg("Failed to log user activity")
+			}
+		}()
 
 		// example: "/weather london (any case) 5 days" or "/weather london 12 hours"
 		messageParts := strings.Fields(update.Message.Text)
 
-		if len(messageParts) < 3 {
+		if len(messageParts) < 4 {
 			b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
 				Text:   "Please provide a city and forecast type (days or hours). Example: /weather london 5 days",
@@ -72,7 +73,7 @@ func weatherHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 		}
 
 		city := messageParts[1]
-		periodType := messageParts[3]
+		periodType := strings.ToLower(messageParts[3])
 
 		qParams := map[string]interface{}{
 			"city": city,
@@ -124,10 +125,11 @@ func weatherHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 
 func allowHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 	return func(ctx context.Context, _ *telegramBot.Bot, update *telegramBotModels.Update) {
-		err := b.db.LogUserActivity(update.Message.From.ID, update.Message.Text)
-		if err != nil {
-			b.logger.Error().Err(err).Msg("Failed to log user activity")
-		}
+		go func() {
+			if err := b.db.LogUserActivity(update.Message.From.ID, update.Message.Text); err != nil {
+				b.logger.Error().Err(err).Msg("Failed to log user activity")
+			}
+		}()
 
 		if b.getUserRole(update.Message.From.ID) != AdminUser {
 			b.bot.SendMessage(ctx, &telegramBot.SendMessageParams{
@@ -183,10 +185,11 @@ func chatHandlerClosure(b *Bot) telegramBot.HandlerFunc {
 			return
 		}
 
-		err := b.db.LogUserActivity(update.Message.From.ID, update.Message.Text)
-		if err != nil {
-			b.logger.Error().Err(err).Msg("Failed to log user activity")
-		}
+		go func() {
+			if err := b.db.LogUserActivity(update.Message.From.ID, update.Message.Text); err != nil {
+				b.logger.Error().Err(err).Msg("Failed to log user activity")
+			}
+		}()
 
 		prompt := strings.TrimPrefix(update.Message.Text, "/chat ")
 		if prompt == "" {

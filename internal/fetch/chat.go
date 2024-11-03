@@ -7,10 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/rs/zerolog"
 )
 
 type ChatFetcher struct {
 	BaseFetcher
+	client *http.Client
 }
 
 type Message struct {
@@ -31,7 +35,17 @@ type ChatGPTResponse struct {
 	} `json:"choices"`
 }
 
-func (cf ChatFetcher) Fetch(qParams map[string]interface{}) (string, error) {
+func (cf *ChatFetcher) Set(APIKey string, logger *zerolog.Logger) error {
+	if err := cf.BaseFetcher.Set(APIKey, logger); err != nil {
+		return err
+	}
+	cf.client = &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	return nil
+}
+
+func (cf *ChatFetcher) Fetch(qParams map[string]interface{}) (string, error) {
 	if !cf.isSet() {
 		cf.logger.Error().Msg("chat fetcher is not set")
 		return "", errors.New("chat fetcher is not set")
@@ -65,8 +79,7 @@ func (cf ChatFetcher) Fetch(qParams map[string]interface{}) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cf.APIKey))
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := cf.client.Do(req)
 	if err != nil {
 		cf.logger.Error().Err(err).Msg("error sending request")
 		return "", err
@@ -79,15 +92,22 @@ func (cf ChatFetcher) Fetch(qParams map[string]interface{}) (string, error) {
 		return "", err
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		cf.logger.Error().
+			Int("status_code", resp.StatusCode).
+			Msgf("chat API request failed: %s", string(body))
+		return "", fmt.Errorf("chat API request failed with status %d", resp.StatusCode)
+	}
+
 	var chatGPTResp ChatGPTResponse
 	if err := json.Unmarshal(body, &chatGPTResp); err != nil {
 		cf.logger.Error().Err(err).Msg("error unmarshalling response body")
 		return "", err
 	}
 
-	if len(chatGPTResp.Choices) == 0 {
-		cf.logger.Error().Msg("no response from ChatGPT")
-		return "", errors.New("no response from ChatGPT")
+	if len(chatGPTResp.Choices) == 0 || chatGPTResp.Choices[0].Message.Content == "" {
+		cf.logger.Error().Msg("no valid response from ChatGPT")
+		return "", errors.New("no valid response from ChatGPT")
 	}
 
 	return chatGPTResp.Choices[0].Message.Content, nil

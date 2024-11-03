@@ -7,7 +7,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -17,6 +20,9 @@ const (
 
 type WeatherFetcher struct {
 	BaseFetcher
+	client        *http.Client
+	locationCache map[string]string
+	cacheMutex    sync.RWMutex
 }
 
 type LocationResponse struct {
@@ -81,58 +87,68 @@ func utilTryRFCDateToHumanReadableDate(date string) string {
 	return t.Format("2006-01-02 15:04:05")
 }
 
-func utilFahrenheitToCelsius(f float32) float32 {
-	return (f - 32) * 5 / 9
+func utilConvertTemperature(value float32, unit string) (float32, string) {
+	if unit == "F" {
+		return (value - 32) * 5 / 9, "C"
+	}
+	return value, unit
 }
 
 func (fr ForecastResponse) String() string {
-	r := ""
+	var r strings.Builder
 	if len(fr.DailyForecasts) > 0 {
 		for _, day := range fr.DailyForecasts {
-			r += fmt.Sprintf("Date: %s\n", utilTryRFCDateToHumanReadableDate(day.Date))
-			if day.Temperature.Minimum.Unit == "F" {
-				day.Temperature.Minimum.Value = utilFahrenheitToCelsius(day.Temperature.Minimum.Value)
-				day.Temperature.Minimum.Unit = "C"
-			}
-			r += fmt.Sprintf("Min Temp: %.2f %s\n", day.Temperature.Minimum.Value, day.Temperature.Minimum.Unit)
-			if day.Temperature.Maximum.Unit == "F" {
-				day.Temperature.Maximum.Value = utilFahrenheitToCelsius(day.Temperature.Maximum.Value)
-				day.Temperature.Maximum.Unit = "C"
-			}
-			r += fmt.Sprintf("Max Temp: %.2f %s\n", day.Temperature.Maximum.Value, day.Temperature.Maximum.Unit)
-			r += fmt.Sprintf("Day: \n\tWeather: %s \n\tPrecipitation: %t\n", day.Day.IconPhrase, day.Day.HasPrecipitation)
-			r += fmt.Sprintf("Night: \n\tWeather: %s \n\tPrecipitation: %t\n", day.Night.IconPhrase, day.Night.HasPrecipitation)
-			r += "\n"
+			minValue, minUnit := utilConvertTemperature(day.Temperature.Minimum.Value, day.Temperature.Minimum.Unit)
+			maxValue, maxUnit := utilConvertTemperature(day.Temperature.Maximum.Value, day.Temperature.Maximum.Unit)
+
+			r.WriteString(fmt.Sprintf("Date: %s\n", utilTryRFCDateToHumanReadableDate(day.Date)))
+			r.WriteString(fmt.Sprintf("Min Temp: %.2f %s\n", minValue, minUnit))
+			r.WriteString(fmt.Sprintf("Max Temp: %.2f %s\n", maxValue, maxUnit))
+			r.WriteString(fmt.Sprintf("Day: \n\tWeather: %s \n\tPrecipitation: %t\n", day.Day.IconPhrase, day.Day.HasPrecipitation))
+			r.WriteString(fmt.Sprintf("Night: \n\tWeather: %s \n\tPrecipitation: %t\n", day.Night.IconPhrase, day.Night.HasPrecipitation))
+			r.WriteString("\n")
 		}
 	} else {
 		for _, hour := range fr.HourlyForecasts {
-			r += fmt.Sprintf("Date: %s\n", utilTryRFCDateToHumanReadableDate(hour.DateTime))
-			if hour.Temperature.Unit == "F" {
-				hour.Temperature.Value = utilFahrenheitToCelsius(hour.Temperature.Value)
-				hour.Temperature.Unit = "C"
-			}
-			r += fmt.Sprintf("Temp: %.2f %s\n", hour.Temperature.Value, hour.Temperature.Unit)
-			r += fmt.Sprintf("Daylight: %t\n", hour.IsDaylight)
-			r += fmt.Sprintf("Precipitation: %t\n", hour.HasPrecipitation)
-			r += fmt.Sprintf("Precipitation Probability: %f\n", hour.PrecipitationProbability)
-			r += "\n"
+			tempValue, tempUnit := utilConvertTemperature(hour.Temperature.Value, hour.Temperature.Unit)
+
+			r.WriteString(fmt.Sprintf("Date: %s\n", utilTryRFCDateToHumanReadableDate(hour.DateTime)))
+			r.WriteString(fmt.Sprintf("Temp: %.2f %s\n", tempValue, tempUnit))
+			r.WriteString(fmt.Sprintf("Daylight: %t\n", hour.IsDaylight))
+			r.WriteString(fmt.Sprintf("Precipitation: %t\n", hour.HasPrecipitation))
+			r.WriteString(fmt.Sprintf("Precipitation Probability: %.2f\n", hour.PrecipitationProbability))
+			r.WriteString("\n")
 		}
 	}
-	return r
+	return r.String()
 }
 
-// /////////////////////////////////////////////////////////////////////////////
-// Struct
-// /////////////////////////////////////////////////////////////////////////////
+func (wf *WeatherFetcher) Set(APIKey string, logger *zerolog.Logger) error {
+	if err := wf.BaseFetcher.Set(APIKey, logger); err != nil {
+		return err
+	}
+	wf.client = &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	wf.locationCache = make(map[string]string)
+	return nil
+}
 
-func (wf WeatherFetcher) buildCityURL(city string) string {
+func (wf *WeatherFetcher) buildCityURL(city string) string {
 	return fmt.Sprintf("http://dataservice.accuweather.com/locations/v1/search?&q=%s&apikey=%s", strings.ToLower(city), wf.APIKey)
 }
 
-func (wf WeatherFetcher) getLocationKey(city string) (string, error) {
+func (wf *WeatherFetcher) getLocationKey(city string) (string, error) {
+	wf.cacheMutex.RLock()
+	if key, found := wf.locationCache[city]; found {
+		wf.cacheMutex.RUnlock()
+		return key, nil
+	}
+	wf.cacheMutex.RUnlock()
+
 	url := wf.buildCityURL(city)
 
-	resp, err := http.Get(url)
+	resp, err := wf.client.Get(url)
 	if err != nil {
 		wf.logger.Error().Err(err).Msg("error getting weather fetcher location key")
 		return "", err
@@ -156,10 +172,16 @@ func (wf WeatherFetcher) getLocationKey(city string) (string, error) {
 		return "", errors.New("no locations found")
 	}
 
-	return locations[0].Key, nil
+	k := locations[0].Key
+
+	wf.cacheMutex.Lock()
+	wf.locationCache[city] = k
+	wf.cacheMutex.Unlock()
+
+	return k, nil
 }
 
-func (wf WeatherFetcher) buildURL(qParams map[string]interface{}) (string, error) {
+func (wf *WeatherFetcher) buildURL(qParams map[string]interface{}) (string, error) {
 	baseURL := "http://dataservice.accuweather.com/forecasts/v1/"
 
 	city, ok := qParams["city"].(string)
@@ -201,11 +223,7 @@ func (wf WeatherFetcher) buildURL(qParams map[string]interface{}) (string, error
 	return fmt.Sprintf("%s%s%s?apikey=%s", baseURL, rangeSegment, locationKey, wf.APIKey), nil
 }
 
-// /////////////////////////////////////////////////////////////////////////////
-// Interface : Fetchable
-// /////////////////////////////////////////////////////////////////////////////
-
-func (wf WeatherFetcher) Fetch(qParams map[string]interface{}) (string, error) {
+func (wf *WeatherFetcher) Fetch(qParams map[string]interface{}) (string, error) {
 	if !wf.isSet() {
 		return "", errors.New("weather fetcher is not set")
 	}
